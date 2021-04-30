@@ -1,0 +1,694 @@
+<html>
+
+<head>
+<title>ICG WebGL &mdash; HW1</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+<script type='text/javascript' src='http://code.jquery.com/jquery-1.8.3.min.js'></script>
+<script type='text/javascript' src='https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js'></script>
+
+<script type="text/javascript" src="./js/glMatrix-0.9.5.min.js"></script>
+<script type="text/javascript" src="./js/webgl-utils.js"></script>
+<script type="text/javascript" src="./shader/gouraud_fragment_shader.js"></script>
+<script type="text/javascript" src="./shader/gouraud_vertex_shader.js"></script>
+<script type="text/javascript" src="./shader/flat_fragment_shader.js"></script>
+<script type="text/javascript" src="./shader/flat_vertex_shader.js"></script>
+<script type="text/javascript" src="./shader/phong_fragment_shader.js"></script>
+<script type="text/javascript" src="./shader/phong_vertex_shader.js"></script>
+
+<!-- 
+    TODO HERE: 
+    modify fragment shader or write another one
+    to implement flat, gouraud and phong shading
+ -->
+<script id="fragmentShader" type="fragment" tmp="shadershader">
+    precision mediump float;
+
+    varying vec4 fragcolor;
+
+    void main(void) {
+        gl_FragColor = fragcolor;
+    }
+</script>
+
+<!-- 
+    TODO HERE:
+    modify vertex shader or write another one
+    to implement flat, gouraud and phong shading
+
+    NOTE:
+    if you want to write bonus part (texture mapping),
+    only Teapot.json has extra attribute "vertexTextureCoords"
+    which is used for texture mappping.
+ -->
+<script id="vertexShader" type="vertex" >
+    attribute vec3 aVertexPosition;
+    attribute vec3 aFrontColor;
+    attribute vec3 aVertexNormal;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+	varying vec4 fragcolor;    // This value will change later
+
+    void main(void) {
+        /*
+            HW need three different light source, 
+            just calculate their ambient, diffuse, specular separately, then sum up.
+        */
+
+        // light position and color of light 
+        vec3 light = vec3(30.0, 20.0, -25.0);
+        vec3 lightColor = vec3(1.0, 0.7, 0.7);
+
+        // Model coord to world coord
+        // Normal vec will not change after translation, 
+        // so no need to use homo coord (4 dim)
+        vec3 mvVertex = (uMVMatrix * vec4(aVertexPosition, 1.0)).xyz;
+        mat3 normalMVMatrix = mat3(uMVMatrix);
+        vec3 mvNormal = normalMVMatrix * aVertexNormal;
+
+        vec3 V = -normalize(mvVertex);
+        vec3 N = normalize(mvNormal);
+        vec3 L = normalize(light - mvVertex);
+        vec3 H = normalize(L+V);
+
+        float ka = 0.1;
+        float kd = 0.6;
+        float ks = 0.9;
+
+        vec3 ambient = lightColor *ka * aFrontColor;
+        float cos = max(dot(L, N), 0.0);    // cos might be 0
+        vec3 diffuse = lightColor * kd * aFrontColor * cos;
+        float cosAlpha = max(dot(H, N), 0.0);
+        vec3 specular = lightColor * ks * pow(cosAlpha, 16.0);
+
+        vec3 gouraud = vec3(0.0, 0.0, 0.0);
+        gouraud = ambient + diffuse + specular;
+
+        // fragcolor = vec4(aFrontColor.rgb, 1.0);
+        fragcolor = vec4(gouraud, 1.0);
+        gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+    }
+</script>
+
+<script type="text/javascript">
+    // common variables
+    var gl;
+    var shaderProgram;
+    var shaderPrograms = {}; // Contains multiple types of shaders, e.g. gouraud, phong, flat...
+
+    var mvMatrix = mat4.create();
+    var pMatrix  = mat4.create();
+
+    // var teapotVertexPositionBuffer;
+    // var teapotVertexNormalBuffer;
+    // var teapotVertexFrontColorBuffer;
+
+    var teapotAngle = 180;
+    var lastTime    = 0;
+
+
+
+    var modelBuffers = {};
+    var drawModelConfig = {
+        "models": [
+            {"shader": "gouraud", "model": "Teapot", "position": [-20, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}}, 
+            {"shader": "gouraud", "model": "Teapot", "position": [0, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}}, 
+            {"shader": "gouraud", "model": "Teapot", "position": [20, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}}
+        ], 
+        "shader": "gouraud", 
+        "model": "Teapot", 
+        "light": [
+            {"color": [0.5, 0.2, 0.1], "position": [30.0, 20.0, -25.0]}, 
+            {"color": [1.0, 1.0, 1.0], "position": [30.0, 20.0, -25.0]}, 
+            {"color": [1.0, 1.0, 1.0], "position": [30.0, 20.0, -25.0]}
+        ]
+    };
+
+    function initGL(canvas) {
+        try {
+            gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+            gl.viewportWidth  = canvas.width;
+            gl.viewportHeight = canvas.height;
+            gl.getExtension('OES_standard_derivatives');
+        } 
+        catch (e) {
+        }
+
+        if (!gl) {
+            alert("Could not initialise WebGL, sorry :-(");
+        }
+    }
+
+    // Invoked by initShader 
+    function getShader(gl, id, shaderType) {
+        var shaderScript = document.getElementById(id);
+        if (!shaderScript) {
+            return null;
+        }
+
+        var shaderSource = "";
+        // var k = shaderScript.firstChild;
+        // while (k) {
+        //     if (k.nodeType == 3) {
+        //         shaderSource += k.textContent;
+        //     }
+
+        //     k = k.nextSibling;
+        // }
+
+        var shader;
+        if (id == "fragmentShader") {
+            if (shaderType == "gouraud") {
+                shaderSource = gouraud_fragment_shader;
+            }
+            if (shaderType == "phong")
+            {
+                shaderSource = phong_fragment_shader;
+            }
+            if (shaderType == "flat")
+            {
+                shaderSource = flat_fragment_shader;
+            }
+
+            shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } 
+        else if (id == "vertexShader") {
+            shader = gl.createShader(gl.VERTEX_SHADER);
+            if (shaderType == "gouraud") {
+                shaderSource = gouraud_vertex_shader;
+            }
+            if (shaderType == "phong")
+            {
+                shaderSource = phong_vertex_shader;
+            }
+            if (shaderType == "flat")
+            {
+                shaderSource = flat_vertex_shader;
+            }
+        } 
+        else {
+            return null;
+        }
+
+        gl.shaderSource(shader, shaderSource);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
+    }
+
+    // You may want to init. multiple shaders at WebGLStart()
+    function initShaders(shaderType="gouraud") {
+        var fragmentShader = getShader(gl, "fragmentShader", shaderType);
+        var vertexShader   = getShader(gl, "vertexShader", shaderType);
+
+        // A shader progeam can only have one vertex shader and one fragment shader 
+        let shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert("Could not initialise shaders");
+        }
+
+        gl.useProgram(shaderProgram);
+
+        console.log(shaderType+" is initialized.");
+        shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+        gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+
+        shaderProgram.vertexFrontColorAttribute = gl.getAttribLocation(shaderProgram, "aFrontColor");
+        gl.enableVertexAttribArray(shaderProgram.vertexFrontColorAttribute);
+
+        shaderProgram.vertexNormalAttribute = gl.getAttribLocation(shaderProgram, "aVertexNormal");
+        gl.enableVertexAttribArray(shaderProgram.vertexNormalAttribute);
+
+        // Shader constant
+        shaderProgram.ka  = gl.getUniformLocation(shaderProgram, "ka");
+        shaderProgram.kd  = gl.getUniformLocation(shaderProgram, "kd");
+        shaderProgram.ks  = gl.getUniformLocation(shaderProgram, "ks");
+        // Light color and position 
+        shaderProgram.lightColor1  = gl.getUniformLocation(shaderProgram, "lightColor1");
+        shaderProgram.lightColor2  = gl.getUniformLocation(shaderProgram, "lightColor2");
+        shaderProgram.lightColor3  = gl.getUniformLocation(shaderProgram, "lightColor3");
+        shaderProgram.lightPosition1  = gl.getUniformLocation(shaderProgram, "lightPosition1");
+        shaderProgram.lightPosition2  = gl.getUniformLocation(shaderProgram, "lightPosition2");
+        shaderProgram.lightPosition3  = gl.getUniformLocation(shaderProgram, "lightPosition3");
+
+
+        shaderProgram.pMatrixUniform  = gl.getUniformLocation(shaderProgram, "uPMatrix");
+        shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+
+        shaderPrograms[shaderType] = shaderProgram;
+    }
+
+    // Model-view matrix (mvMatrix) and Perspective matrix (pMatrix) 
+    // Send two matrix to shader 
+    function setMatrixUniforms(shaderProgram) {
+        gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
+        gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
+    }
+
+    function degToRad(degrees) {
+        return degrees * Math.PI / 180;
+    }
+
+    // Read model data 
+    function handleLoadedModel(modelData, modelName) {
+        let teapotVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelData.vertexPositions), gl.STATIC_DRAW);
+        teapotVertexPositionBuffer.itemSize = 3;
+        teapotVertexPositionBuffer.numItems = modelData.vertexPositions.length / 3;
+
+        let teapotVertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelData.vertexNormals), gl.STATIC_DRAW);
+        teapotVertexNormalBuffer.itemSize = 3;
+        teapotVertexNormalBuffer.numItems = modelData.vertexNormals.length / 3;
+
+        let teapotVertexFrontColorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexFrontColorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelData.vertexFrontcolors), gl.STATIC_DRAW);
+        teapotVertexFrontColorBuffer.itemSize = 3;
+        teapotVertexFrontColorBuffer.numItems = modelData.vertexFrontcolors.length / 3;
+
+        // save model data buffer
+        modelBuffers[modelName] = [teapotVertexPositionBuffer, teapotVertexFrontColorBuffer, teapotVertexNormalBuffer];
+    }
+
+    // function loadTeapot() {
+    //     var request = new XMLHttpRequest();
+    //     request.open("GET", "./model/Teapot.json");
+    //     request.onreadystatechange = function () {
+    //         if (request.readyState == 4) {
+    //             handleLoadedTeapot(JSON.parse(request.responseText));
+    //         }
+    //     }
+    //     request.send();
+    // }
+
+    function loadModel(modelName) {
+        var request = new XMLHttpRequest();
+        request.open("GET", "./model/" + modelName + ".json");
+        request.onreadystatechange = function () {
+            if (request.readyState == 4) {
+                handleLoadedModel(JSON.parse(request.responseText), modelName);
+            }
+        }
+        request.send();
+    }
+
+    /*
+        TODO HERE:
+        add two or more objects showing on the canvas
+        (it needs at least three objects showing at the same time)
+    */
+    function drawScene() {
+        // Camera default normal is [0, 0, -1], position is [0, 0, 0]
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // if (teapotVertexPositionBuffer   == null || 
+        //     teapotVertexNormalBuffer     == null || 
+        //     teapotVertexFrontColorBuffer == null) {
+            
+        //     return;
+        // }
+
+        // Setup Projection Matrix (It seems like project the 3d object point to 2d scene (pixel)point)
+        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, pMatrix);
+
+        for (let i = 0;i < 3;++i)
+        {
+            if(!modelBuffers.hasOwnProperty(drawModelConfig["models"][i]["model"])){
+                continue;
+            }
+
+            // Choose shader program
+            let shaderProgram = shaderPrograms[drawModelConfig["models"][i]["shader"]]; 
+
+            // Update rotation angle 
+            var curTime = new Date().getTime();
+            if(drawModelConfig["models"][i]["rotate"]["lastTime"]!=0){
+                var elapsed = curTime - drawModelConfig["models"][i]["rotate"]["lastTime"];
+                drawModelConfig["models"][i]["rotate"]["initAngle"] += 0.03 * elapsed;
+            }
+            drawModelConfig["models"][i]["rotate"]["lastTime"] = curTime;
+
+            /* Setup Model-View Matrix (Model initial position) (these translation will continue to update)
+                Model view matrix (mvMatrix) decribe the translation in model view space(or camera space), 
+                which is set origin at camera.
+            */
+            // Rotate first then translate, last in will first be executed  
+            mat4.identity(mvMatrix);    // initial the transition matrix with identity matrix 
+            // mat4.translate(mvMatrix, [0, 0, -50]);
+            mat4.translate(mvMatrix, drawModelConfig["models"][i]["position"]);
+            
+            mat4.scale(mvMatrix, drawModelConfig["models"][i]["scale"]);
+            mat4.rotate(mvMatrix, degToRad(drawModelConfig["models"][i]["rotate"]["initAngle"]), drawModelConfig["models"][i]["rotate"]["direction"]);
+            //TODO: shear 
+
+            gl.useProgram(shaderProgram);
+            setMatrixUniforms(shaderProgram); // send adjusted matrix to shader
+
+            // Pass model data to shader program () 
+            // Setup model position data
+            gl.bindBuffer(gl.ARRAY_BUFFER, modelBuffers[drawModelConfig["models"][i]["model"]][0]);
+            gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 
+                                   modelBuffers[drawModelConfig["models"][i]["model"]][0].itemSize, 
+                                   gl.FLOAT, 
+                                   false, 
+                                   0, 
+                                   0);
+
+            // Setup model front color data
+            gl.bindBuffer(gl.ARRAY_BUFFER, modelBuffers[drawModelConfig["models"][i]["model"]][1]);
+            gl.vertexAttribPointer(shaderProgram.vertexFrontColorAttribute, 
+                                   modelBuffers[drawModelConfig["models"][i]["model"]][1].itemSize, 
+                                   gl.FLOAT, 
+                                   false, 
+                                   0, 
+                                   0);
+
+            // Setup model normal data
+            gl.bindBuffer(gl.ARRAY_BUFFER, modelBuffers[drawModelConfig["models"][i]["model"]][2]);
+            gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, 
+                                   modelBuffers[drawModelConfig["models"][i]["model"]][2].itemSize, 
+                                   gl.FLOAT, 
+                                   false, 
+                                   0, 
+                                   0);
+
+            // Setup light color and position 
+            gl.uniform3fv(shaderProgram.lightColor1, drawModelConfig["light"][0]["color"]);
+            gl.uniform3fv(shaderProgram.lightColor2, drawModelConfig["light"][1]["color"]);
+            gl.uniform3fv(shaderProgram.lightColor3, drawModelConfig["light"][2]["color"]);
+
+            gl.uniform3fv(shaderProgram.lightPosition1, drawModelConfig["light"][0]["position"]);
+            gl.uniform3fv(shaderProgram.lightPosition2, drawModelConfig["light"][1]["position"]);
+            gl.uniform3fv(shaderProgram.lightPosition3, drawModelConfig["light"][2]["position"]);
+            
+
+            // Setup shader constant 
+            gl.uniform1f(shaderProgram.ka, drawModelConfig["models"][i]["constant"]["ka"]);
+            gl.uniform1f(shaderProgram.kd, drawModelConfig["models"][i]["constant"]["kd"]);
+            gl.uniform1f(shaderProgram.ks, drawModelConfig["models"][i]["constant"]["ks"]);
+            /*
+                Draw vertex at origin [0, 0]
+                Call multiple times will draw soooooo many teapot (but at the same position) 
+            */
+            gl.drawArrays(gl.TRIANGLES, 0, modelBuffers[drawModelConfig["models"][i]["model"]][0].numItems);
+        }
+
+                
+    }
+
+    function animate() {
+        var timeNow = new Date().getTime();
+        if (lastTime != 0) {
+            var elapsed = timeNow - lastTime;
+            teapotAngle += 0.03 * elapsed;
+        }
+        
+        lastTime = timeNow;
+    }
+
+    function tick() {
+        requestAnimFrame(tick);
+        drawScene();
+        // animate();
+    }
+    // main 
+    function webGLStart() {
+        var canvas = document.getElementById("ICG-canvas");
+        initGL(canvas);
+        initShaders(); // gouraud
+        initShaders("phong");
+        initShaders("flat");
+        loadModel("Teapot");
+
+        gl.clearColor(0.0, 0.2, 0.2, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+
+        tick();
+    }
+</script>
+</head>
+
+<body onload="webGLStart();">
+    <canvas id="ICG-canvas" style="border: none;" width="1280" height="720"></canvas>
+    <br/>
+</body>
+
+<body>
+    <!-- Select shader -->
+    <div>
+        <label for="shader_select1">select shader</label>
+        <select id="shader_select1" name="shading_select">
+        <option value="flat">Flat</option>
+        <option value="gouraud" selected>Gouraud</option>
+        <option value="phong">Phong</option>
+        </select>
+        <label for="shader_select2">select shader</label>
+        <select id="shader_select2" name="shading_select">
+        <option value="flat">Flat</option>
+        <option value="gouraud" selected>Gouraud</option>
+        <option value="phong">Phong</option>
+        </select>
+        <label for="shader_select3">select shader</label>
+        <select id="shader_select3" name="shading_select">
+        <option value="flat">Flat</option>
+        <option value="gouraud" selected>Gouraud</option>
+        <option value="phong">Phong</option>
+        </select>
+    </div>
+    <!-- Select model -->
+    <div>
+        <label for="model_select1">select model1</label>
+        <select id="model_select1" name="shading_select">
+        <option value="Car_road">Car_road</option>
+        <option value="Church_s">Church_s</option>
+        <option value="Csie">Csie</option>
+        <option value="Easter">Easter</option>
+        <option value="Fighter">Fighter</option>
+        <option value="Kangaroo">Kangaroo</option>
+        <option value="Longteap">Longteap</option>
+        <option value="Mercedes">Mercedes</option>
+        <option value="Mig27">Mig27</option>
+        <option value="Patchair">Patchair</option>
+        <option value="Plant">Plant</option>
+        <option value="Teapot" selected>Teapot</option>
+        <option value="Tomcat">Tomcat</option>
+        </select>
+
+        <label for="model_select2">select model2</label>
+        <select id="model_select2" name="shading_select">
+        <option value="Car_road">Car_road</option>
+        <option value="Church_s" >Church_s</option>
+        <option value="Csie">Csie</option>
+        <option value="Easter">Easter</option>
+        <option value="Fighter">Fighter</option>
+        <option value="Kangaroo">Kangaroo</option>
+        <option value="Longteap">Longteap</option>
+        <option value="Mercedes">Mercedes</option>
+        <option value="Mig27">Mig27</option>
+        <option value="Patchair">Patchair</option>
+        <option value="Plant">Plant</option>
+        <option value="Teapot" selected>Teapot</option>
+        <option value="Tomcat">Tomcat</option>
+        </select>
+
+        <label for="model_select3">select model3</label>
+        <select id="model_select3" name="shading_select">
+        <option value="Car_road">Car_road</option>
+        <option value="Church_s">Church_s</option>
+        <option value="Csie">Csie</option>
+        <option value="Easter">Easter</option>
+        <option value="Fighter">Fighter</option>
+        <option value="Kangaroo">Kangaroo</option>
+        <option value="Longteap">Longteap</option>
+        <option value="Mercedes">Mercedes</option>
+        <option value="Mig27">Mig27</option>
+        <option value="Patchair">Patchair</option>
+        <option value="Plant">Plant</option>
+        <option value="Teapot" selected>Teapot</option>
+        <option value="Tomcat">Tomcat</option>
+        </select>
+    </div>
+    <!-- Position -->
+    <div>
+        <div>
+            <label for="positionX1">position x 1</label>
+            <input type="text" id="positionX1" name="positionX1" value="-20">
+            <label for="positionX2">position x 2</label>
+            <input type="text" id="positionX2" name="positionX2" value="0">
+            <label for="positionX3">position x 3</label>
+            <input type="text" id="positionX3" name="positionX3" value="50">
+        </div>
+        <div>
+            <label for="positionY1">position y 1</label>
+            <input type="text" id="positionY1" name="positionY1" value="0">
+            <label for="positionY2">position y 2</label>
+            <input type="text" id="positionY2" name="positionY2" value="0">
+            <label for="positionY3">position y 3</label>
+            <input type="text" id="positionY3" name="positionY3" value="0">
+        </div>
+        <div>
+            <label for="positionZ1">position z 1</label>
+            <input type="text" id="positionZ1" name="positionZ1" value="-50">
+            <label for="positionZ2">position z 2</label>
+            <input type="text" id="positionZ2" name="positionZ2" value="-50">
+            <label for="positionZ3">position z 3</label>
+            <input type="text" id="positionZ3" name="positionZ3" value="-50">
+        </div>
+    </div>
+    <!-- Rotation -->
+    <div>
+        <div>
+            <!-- <input id="rotationX1" name="rotationX1" type="hidden" value="0"> -->
+            <label for="rotationX1">rotation x 1</label>
+            <input type="checkbox" id="rotationX1" name="rotationX1" value="1">
+            <label for="rotationX2">rotation x 2</label>
+            <input type="checkbox" id="rotationX2" name="rotationX2" value="1">
+            <label for="rotationX3">rotation x 3</label>
+            <input type="checkbox" id="rotationX3" name="rotationX3" value="1">
+        </div>
+        <div>
+            <label for="rotationY1">rotation y 1</label>
+            <input type="checkbox" id="rotationY1" name="rotationY1" checked value="1">
+            <label for="rotationY2">rotation y 2</label>
+            <input type="checkbox" id="rotationY2" name="rotationY2" checked value="1">
+            <label for="rotationY3">rotation y 3</label>
+            <input type="checkbox" id="rotationY3" name="rotationY3" checked value="1">
+        </div>
+        <div>
+            <label for="rotationZ1">rotation z 1</label>
+            <input type="checkbox" id="rotationZ1" name="rotationZ1" value="1">
+            <label for="rotationZ2">rotation z 2</label>
+            <input type="checkbox" id="rotationZ2" name="rotationZ2" value="1">
+            <label for="rotationZ3">rotation x 3</label>
+            <input type="checkbox" id="rotationZ3" name="rotationZ3" value="1">
+        </div>
+    </div>
+    <!-- Scale -->
+    <div>
+        <div>
+            <label for="scaleX_slider1">scale x 1</label>
+            <input id="scaleX_slider1" type="range" min="0.1" max="5" step="0.1" value="1">
+            <label for="scaleX_slider2">scale x 2</label>
+            <input id="scaleX_slider2" type="range" min="0.1" max="5" step="0.1" value="1">
+            <label for="scaleX_slider3">scale x 3</label>
+            <input id="scaleX_slider3" type="range" min="0.1" max="5" step="0.1" value="1">
+        </div>
+        <div>
+            <label for="scaleY_slider1">scale y 1</label>
+            <input id="scaleY_slider1" type="range" min="0.1" max="5" step="0.1" value="1">
+            <label for="scaleY_slider2">scale y 2</label>
+            <input id="scaleY_slider2" type="range" min="0.1" max="5" step="0.1" value="1">
+            <label for="scaleY_slider3">scale y 3</label>
+            <input id="scaleY_slider3" type="range" min="0.1" max="5" step="0.1" value="1">
+        </div>
+        <div>
+            <label for="scaleZ_slider1">scale z 1</label>
+            <input id="scaleZ_slider1" type="range" min="0.1" max="5" step="0.1" value="1">
+            <label for="scaleZ_slider2">scale z 2</label>
+            <input id="scaleZ_slider2" type="range" min="0.1" max="5" step="0.1" value="1">
+            <label for="scaleZ_slider3">scale z 3</label>
+            <input id="scaleZ_slider3" type="range" min="0.1" max="5" step="0.1" value="1">
+        </div>
+    </div>
+    <!-- Shader constant -->
+    <div>
+        <div>
+            <label for="shaderConstantka1">ka: </label>
+            <input id="shaderConstantka1" type="range" min="0" max="1" step="0.1" value="0.1">
+            <label for="shaderConstantka2">ka: </label>
+            <input id="shaderConstantka2" type="range" min="0" max="1" step="0.1" value="0.1">
+            <label for="shaderConstantka3">ka: </label>
+            <input id="shaderConstantka3" type="range" min="0" max="1" step="0.1" value="0.1">
+        </div>
+        <div>
+            <label for="shaderConstantkd1">kd: </label>
+            <input id="shaderConstantkd1" type="range" min="0" max="1" step="0.1" value="0.6">
+            <label for="shaderConstantkd2">kd: </label>
+            <input id="shaderConstantkd2" type="range" min="0" max="1" step="0.1" value="0.6">
+            <label for="shaderConstantkd3">kd: </label>
+            <input id="shaderConstantkd3" type="range" min="0" max="1" step="0.1" value="0.6">
+        </div>
+        <div>
+            <label for="shaderConstantks1">ks: </label>
+            <input id="shaderConstantks1" type="range" min="0" max="1" step="0.1" value="0.9">
+            <label for="shaderConstantks2">ks: </label>
+            <input id="shaderConstantks2" type="range" min="0" max="1" step="0.1" value="0.9">
+            <label for="shaderConstantks3">ks: </label>
+            <input id="shaderConstantks3" type="range" min="0" max="1" step="0.1" value="0.9">
+        </div>
+    </div>
+    <!-- light color and position -->
+    <h3>Light source</h3>
+    <div>
+        <div>
+            <label for="lightPositionX1">light position x 1</label>
+            <input type="text" id="lightPositionX1" name="lightPositionX1" value="30.0">     
+            <label for="lightPositionX2">light position x 2</label>
+            <input type="text" id="lightPositionX2" name="lightPositionX2" value="30.0">
+            <label for="lightPositionX3">light position x 3</label>
+            <input type="text" id="lightPositionX3" name="lightPositionX3" value="30.0">
+        </div>
+        <div>
+            <label for="lightPositionY1">light position y 1</label>
+            <input type="text" id="lightPositionY1" name="lightPositionY1" value="20.0">     
+            <label for="lightPositionY2">light position y 2</label>
+            <input type="text" id="lightPositionY2" name="lightPositionY2" value="20.0">
+            <label for="lightPositionY3">light position y 3</label>
+            <input type="text" id="lightPositionY3" name="lightPositionY3" value="20.0">
+        </div>
+        <div>
+            <label for="lightPositionZ1">light position z 1</label>
+            <input type="text" id="lightPositionZ1" name="lightPositionZ1" value="-25.0">     
+            <label for="lightPositionZ2">light position z 2</label>
+            <input type="text" id="lightPositionZ2" name="lightPositionZ2" value="-25.0">
+            <label for="lightPositionZ3">light position z 3</label>
+            <input type="text" id="lightPositionZ3" name="lightPositionZ3" value="-25.0">
+        </div>
+    </div>
+    <h3>Light color</h3>
+    <div>
+        <div>
+            <label for="lightColorR1">light color r 1</label>
+            <input type="text" id="lightColorR1" name="lightColorR1" value="1.0">
+            <label for="lightColorR2">light color r 2</label>
+            <input type="text" id="lightColorR2" name="lightColorR2" value="1.0">
+            <label for="lightColorR3">light color r 3</label>
+            <input type="text" id="lightColorR3" name="lightColorR3" value="1.0">
+        </div>
+        <div>
+            <label for="lightColorG1">light color g 1</label>
+            <input type="text" id="lightColorG1" name="lightColorG1" value="1.0">
+            <label for="lightColorG2">light color g 2</label>
+            <input type="text" id="lightColorG2" name="lightColorG2" value="1.0">
+            <label for="lightColorG3">light color g 3</label>
+            <input type="text" id="lightColorG3" name="lightColorG3" value="1.0">
+        </div>
+        <div>
+            <label for="lightColorB1">light color b 1</label>
+            <input type="text" id="lightColorB1" name="lightColorB1" value="1.0">
+            <label for="lightColorB2">light color b 2</label>
+            <input type="text" id="lightColorB2" name="lightColorB2" value="1.0">
+            <label for="lightColorB3">light color b 3</label>
+            <input type="text" id="lightColorB3" name="lightColorB3" value="1.0">
+        </div>
+    </div>
+    <script src="js/get_config.js"></script>
+</body>
+
+
+
+</html>
