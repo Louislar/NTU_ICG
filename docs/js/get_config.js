@@ -73,6 +73,18 @@ for(let i = 0; i<3; ++i)
 	
 }
 // Shear 
+for(let i = 0; i<3; ++i)
+{
+	for(let j=0;j<3;++j)
+	{
+		$("#shear" + strList[j] + "_slider"+(i+1).toString()).on("change", function() {
+		    let val = $("#shear" + strList[j] + "_slider"+(i+1).toString()).val();
+		    console.log("model number: "+(i+1).toString());
+		    console.log(val);
+		    drawModelConfig["models"][i]["shear"][j] = val;
+		});
+	}
+}
 
 // shader constants 
 shaderConstList = ["ka", "kd", "ks"]

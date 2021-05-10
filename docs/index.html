@@ -112,9 +112,9 @@
     var modelBuffers = {};
     var drawModelConfig = {
         "models": [
-            {"shader": "gouraud", "model": "Teapot", "position": [-20, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}}, 
-            {"shader": "gouraud", "model": "Teapot", "position": [0, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}}, 
-            {"shader": "gouraud", "model": "Teapot", "position": [20, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}}
+            {"shader": "gouraud", "model": "Teapot", "position": [-20, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}, "shear": [90, 90, 90]}, 
+            {"shader": "gouraud", "model": "Teapot", "position": [0, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}, "shear": [90, 90, 90]}, 
+            {"shader": "gouraud", "model": "Teapot", "position": [20, 0, -50], "scale": [1, 1, 1], "rotate": {"initAngle": 180, "degree": 0.03, "direction": [0, 1, 0], "lastTime": new Date().getTime()}, "constant": {"ka": 0.2, "kd": 0.6, "ks": 0.7}, "shear": [90, 90, 90]}
         ], 
         "shader": "gouraud", 
         "model": "Teapot", 
@@ -353,7 +353,13 @@
             
             mat4.scale(mvMatrix, drawModelConfig["models"][i]["scale"]);
             mat4.rotate(mvMatrix, degToRad(drawModelConfig["models"][i]["rotate"]["initAngle"]), drawModelConfig["models"][i]["rotate"]["direction"]);
-            //TODO: shear 
+            // shear 
+            let shearMat = mat4.create();
+            mat4.identity(shearMat);
+            shearMat[4] = 1 / Math.tan(degToRad(drawModelConfig["models"][i]['shear'][0]));
+            shearMat[1] = 1 / Math.tan(degToRad(drawModelConfig["models"][i]['shear'][1]));
+            shearMat[8] = 1 / Math.tan(degToRad(drawModelConfig["models"][i]['shear'][2]));
+            mat4.multiply(mvMatrix, shearMat, mvMatrix); // apply shear 
 
             gl.useProgram(shaderProgram);
             setMatrixUniforms(shaderProgram); // send adjusted matrix to shader
@@ -602,6 +608,33 @@
             <input id="scaleZ_slider2" type="range" min="0.1" max="5" step="0.1" value="1">
             <label for="scaleZ_slider3">scale z 3</label>
             <input id="scaleZ_slider3" type="range" min="0.1" max="5" step="0.1" value="1">
+        </div>
+    </div>
+    <!-- shear -->
+    <div>
+        <div>
+            <label for="shearX_slider1">shear x 1</label>
+            <input id="shearX_slider1" type="range" min="0" max="180" step="5" value="90">
+            <label for="shearX_slider2">shear x 2</label>
+            <input id="shearX_slider2" type="range" min="0" max="180" step="5" value="90">
+            <label for="shearX_slider3">shear x 3</label>
+            <input id="shearX_slider3" type="range" min="0" max="180" step="5" value="90">
+        </div>
+        <div>
+            <label for="shearY_slider1">shear y 1</label>
+            <input id="shearY_slider1" type="range" min="0" max="180" step="5" value="90">
+            <label for="shearY_slider2">shear y 2</label>
+            <input id="shearY_slider2" type="range" min="0" max="180" step="5" value="90">
+            <label for="shearY_slider3">shear y 3</label>
+            <input id="shearY_slider3" type="range" min="0" max="180" step="5" value="90">
+        </div>
+        <div>
+            <label for="shearZ_slider1">shear z 1</label>
+            <input id="shearZ_slider1" type="range" min="0" max="180" step="5" value="90">
+            <label for="shearZ_slider2">shear z 2</label>
+            <input id="shearZ_slider2" type="range" min="0" max="180" step="5" value="90">
+            <label for="shearZ_slider3">shear z 3</label>
+            <input id="shearZ_slider3" type="range" min="0" max="180" step="5" value="90">
         </div>
     </div>
     <!-- Shader constant -->
