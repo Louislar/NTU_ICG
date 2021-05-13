@@ -28,7 +28,7 @@ for(let i = 0; i<=3; ++i)
 
 strList = ["X", "Y", "Z"]
 // Position
-for(let i = 0; i<=3; ++i)
+for(let i = 0; i<3; ++i)
 {
 	for(let j=0;j<3;j++)
 	{
@@ -73,12 +73,13 @@ for(let i = 0; i<3; ++i)
 	
 }
 // Shear 
+shearList = ["XY", "XZ", "YX", "YZ", "ZX", "ZY"]
 for(let i = 0; i<3; ++i)
 {
-	for(let j=0;j<3;++j)
+	for(let j=0;j<6;++j)
 	{
-		$("#shear" + strList[j] + "_slider"+(i+1).toString()).on("change", function() {
-		    let val = $("#shear" + strList[j] + "_slider"+(i+1).toString()).val();
+		$("#shear" + shearList[j] + "_slider"+(i+1).toString()).on("change", function() {
+		    let val = $("#shear" + shearList[j] + "_slider"+(i+1).toString()).val();
 		    console.log("model number: "+(i+1).toString());
 		    console.log(val);
 		    drawModelConfig["models"][i]["shear"][j] = val;
